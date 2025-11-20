@@ -3,6 +3,11 @@ import torch.nn as nn
 from pytorch_wavelets import DWTForward
 from model.deform_conv3d import *
 from model.convnext import *
+import time
+from thop import profile
+import sys
+import os
+
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -243,3 +248,41 @@ class RCDM(nn.Module):
         
         return output, state
 
+
+if __name__ == "__main__":
+    # Add project root to path to allow importing config
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from config import GOF, PATCHES
+
+    model = RCDM(num_channels=3,
+                 kernel_size=(3, 3),
+                 padding=(1, 1),
+                 activation="relu",
+                 scale=4,
+                 group_of_frames=GOF,
+                 num_of_patches=PATCHES).to(device)
+
+    # Dummy input: (Batch, Frames, Channels, Height, Width)
+    # Assuming 64x64 input patches as per typical SR tasks or derived from inference
+    input_tensor = torch.randn(1, GOF, 3, 64, 64).to(device)
+
+    # Calculate FLOPs and Params
+    flops, params = profile(model, inputs=(input_tensor,))
+    print(f"FLOPs: {flops / 1e9:.2f} G")
+    print(f"Params: {params / 1e6:.2f} M")
+
+    # Measure Inference Time
+    model.eval()
+    iterations = 100
+    with torch.no_grad():
+        # Warmup
+        for _ in range(10):
+            _ = model(input_tensor)
+        
+        start_time = time.time()
+        for _ in range(iterations):
+            _ = model(input_tensor)
+        end_time = time.time()
+
+    avg_time = (end_time - start_time) / iterations
+    print(f"Average Inference Time: {avg_time * 1000:.2f} ms")
